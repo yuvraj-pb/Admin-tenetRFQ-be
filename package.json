@@ -1,0 +1,49 @@
+{
+  "name": "platform-be",
+  "version": "1.0.0",
+  "description": "Advance RFQ — Super Admin / multi-tenant platform backend (separate service, shared DB)",
+  "main": "dist/src/app.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn src/app.ts",
+    "build": "tsc",
+    "start": "node dist/src/app.js",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "sequelize-cli db:migrate",
+    "db:migrate:undo": "sequelize-cli db:migrate:undo",
+    "seed": "ts-node src/scripts/seed.ts"
+  },
+  "keywords": [
+    "rfq",
+    "super-admin",
+    "platform",
+    "multi-tenant"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-ses": "^3.980.0",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.0",
+    "express": "^5.1.0",
+    "express-joi-validation": "^6.1.0",
+    "joi": "^17.13.3",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3",
+    "pg-hstore": "^2.3.4",
+    "razorpay": "^2.9.4",
+    "sequelize": "^6.37.7",
+    "stripe": "^16.12.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/node": "^24.0.12",
+    "sequelize-cli": "^6.6.3",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.8.3"
+  }
+}
