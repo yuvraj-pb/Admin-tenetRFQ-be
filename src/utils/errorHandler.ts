@@ -7,9 +7,13 @@ export const globalErrorHandler = (
   res: Response,
   _next: NextFunction,
 ): void => {
-  const status = Number(error?.statusCode) || 500;
+  const isHttp = Number.isFinite(Number(error?.statusCode));
+  const status = isHttp ? Number(error.statusCode) : 500;
   const code = error?.code ?? null;
-  const message = error?.message || "Internal server error";
   if (status >= 500) console.error(error);
+  const message =
+    status >= 500 && !isHttp
+      ? "Internal server error"
+      : error?.message || "Internal server error";
   errorResponse(res, message, status, code);
 };

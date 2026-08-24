@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { successResponse } from "../utils/apiResponse";
 import { AuthRequest } from "../middlewares/superAdminAuth";
+import { clientIp } from "../utils/clientIp";
 import {
   createBillingCheckout,
   handleRazorpayWebhook,
@@ -11,12 +12,12 @@ import { verifyRazorpayWebhook } from "../services/billing/razorpay";
 import { constructStripeEvent } from "../services/billing/stripe";
 
 export const postCheckout = async (req: AuthRequest, res: Response) => {
-  const data = await createBillingCheckout(req.body ?? {}, req.user?.id);
+  const data = await createBillingCheckout(req.body ?? {}, req.user?.id, clientIp(req));
   return successResponse(res, "Checkout created", data);
 };
 
 export const postVerify = async (req: AuthRequest, res: Response) => {
-  const data = await verifyBillingPayment(req.body ?? {}, req.user?.id);
+  const data = await verifyBillingPayment(req.body ?? {}, req.user?.id, clientIp(req));
   return successResponse(res, "Payment verified", data);
 };
 

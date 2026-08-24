@@ -2,6 +2,8 @@ import { Op } from "sequelize";
 import Company from "../database/models/company";
 import User from "../database/models/user";
 import Subscription from "../database/models/subscription";
+import { latestSubscriptionsByCompanyIds } from "./subscriptionHelpers";
+import { isAtRiskTenant } from "../utils/tenantHealth";
 
 /**
  * Platform dashboard stats. Aggregates only company / user / subscription
@@ -11,6 +13,15 @@ export const getPlatformDashboard = async () => {
   const expiringWithinDays = Number(process.env.EXPIRING_WITHIN_DAYS) || 30;
   const soon = new Date();
   soon.setDate(soon.getDate() + expiringWithinDays);
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  const liveCompanies = await Company.findAll({
+    where: { status: { [Op.ne]: "deleted" } },
+    attributes: ["id", "status", "createdAt"],
+  });
+  const liveIds = liveCompanies.map((c) => c.id);
 
   const [
     totalCompanies,
@@ -20,13 +31,15 @@ export const getPlatformDashboard = async () => {
     totalUsers,
     subscriptionsExpiringSoon,
     activeSubscriptions,
+    subMap,
   ] = await Promise.all([
     Company.count({ where: { status: { [Op.ne]: "deleted" } } }),
     Company.count({ where: { status: "active" } }),
     Company.count({ where: { status: "suspended" } }),
     Company.count({ where: { status: "archived" } }),
-    // Super Admins have companyId = null, so this naturally excludes them.
-    User.count({ where: { companyId: { [Op.ne]: null } } }),
+    liveIds.length
+      ? User.count({ where: { companyId: { [Op.in]: liveIds } } })
+      : Promise.resolve(0),
     Subscription.count({
       where: {
         status: "active",
@@ -55,9 +68,31 @@ export const getPlatformDashboard = async () => {
         },
       ],
     }),
+    latestSubscriptionsByCompanyIds(liveIds),
   ]);
 
-  // monthlyRevenue = sum of active subscriptions normalized to monthly.
+  let pastDueCompanies = 0;
+  let incompleteCompanies = 0;
+  let trialingCompanies = 0;
+  let atRiskCompanies = 0;
+  let newCompaniesThisMonth = 0;
+
+  for (const company of liveCompanies) {
+    if (company.createdAt && new Date(company.createdAt) >= monthStart) {
+      newCompaniesThisMonth += 1;
+    }
+    const sub = subMap.get(company.id);
+    const input = {
+      status: company.status,
+      subscriptionStatus: sub?.status,
+      subscriptionExpiresAt: sub?.current_period_end,
+    };
+    if (isAtRiskTenant(input)) atRiskCompanies += 1;
+    if (sub?.status === "past_due") pastDueCompanies += 1;
+    if (sub?.status === "incomplete") incompleteCompanies += 1;
+    if (sub?.status === "trialing") trialingCompanies += 1;
+  }
+
   const monthlyRevenue =
     Math.round(
       activeSubscriptions.reduce((sum, s) => {
@@ -76,5 +111,10 @@ export const getPlatformDashboard = async () => {
     currency: process.env.DEFAULT_CURRENCY || "INR",
     subscriptionsExpiringSoon,
     expiringWithinDays,
+    pastDueCompanies,
+    incompleteCompanies,
+    trialingCompanies,
+    atRiskCompanies,
+    newCompaniesThisMonth,
   };
 };

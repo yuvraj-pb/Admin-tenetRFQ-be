@@ -25,11 +25,17 @@ export const superAdminMiddleware = async (
   }
 
   try {
-    const { id } = jwt.verify(token, process.env.JWT_SECRET as string) as {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET as string) as {
       id: number;
+      type?: string;
     };
 
-    const user = await User.findByPk(id, {
+    // Refresh tokens must not authorize /platform/* — only access tokens.
+    if (decoded.type === "refresh") {
+      return errorResponse(res, "Invalid or Expired Token", 401);
+    }
+
+    const user = await User.findByPk(decoded.id, {
       include: [{ model: Role, as: "userRole" }],
     });
 

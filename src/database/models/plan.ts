@@ -8,13 +8,31 @@ import {
 import sequelize from "./index";
 
 export type PlanFeatures = {
-  analytics: boolean;
-  advancedAnalytics: boolean;
-  supplierPortal: boolean;
-  approvalWorkflow: boolean;
-  prioritySupport: boolean;
-  dedicatedSupport: boolean;
-  customIntegrations: boolean;
+  rfqCore?: boolean;
+  approvalWorkflow?: boolean;
+  quotes?: boolean;
+  negotiations?: boolean;
+  rfqDeletionApprovals?: boolean;
+  supplierPortal?: boolean;
+  supplierNetwork?: boolean;
+  orders?: boolean;
+  dispatch?: boolean;
+  deliveries?: boolean;
+  quality?: boolean;
+  slaDisputes?: boolean;
+  approvalsHub?: boolean;
+  users?: boolean;
+  roles?: boolean;
+  branches?: boolean;
+  analytics?: boolean;
+  advancedAnalytics?: boolean;
+  analyticsExport?: boolean;
+  qualityAnalytics?: boolean;
+  notifications?: boolean;
+  customIntegrations?: boolean;
+  prioritySupport?: boolean;
+  dedicatedSupport?: boolean;
+  [key: string]: boolean | undefined;
 };
 
 class Plan extends Model<InferAttributes<Plan>, InferCreationAttributes<Plan>> {
@@ -31,6 +49,10 @@ class Plan extends Model<InferAttributes<Plan>, InferCreationAttributes<Plan>> {
   declare features: PlanFeatures;
   declare is_active: CreationOptional<boolean>;
   declare sort_order: CreationOptional<number>;
+  declare kind: CreationOptional<string>;
+  declare negotiable: CreationOptional<boolean>;
+  declare trial_days?: number | null;
+  declare company_id?: number | null;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
 }
@@ -58,6 +80,14 @@ Plan.init(
     features: { type: DataTypes.JSONB, allowNull: false, defaultValue: {} },
     is_active: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     sort_order: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+    kind: {
+      type: DataTypes.STRING(16),
+      allowNull: false,
+      defaultValue: "catalog",
+    },
+    negotiable: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+    trial_days: { type: DataTypes.INTEGER, allowNull: true },
+    company_id: { type: DataTypes.INTEGER, allowNull: true },
     createdAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     updatedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   },

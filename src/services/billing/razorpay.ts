@@ -3,8 +3,22 @@ import Razorpay from "razorpay";
 
 let client: Razorpay | null = null;
 
-export const isRazorpayConfigured = () =>
-  Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+export const isRazorpayConfigured = () => {
+  const keyId = process.env.RAZORPAY_KEY_ID || "";
+  const secret = process.env.RAZORPAY_KEY_SECRET || "";
+  if (!keyId || !secret) return false;
+  // Reject placeholders so Checkout.js never gets a fake keyId → 401.
+  const lower = keyId.toLowerCase();
+  if (
+    lower.includes("placeholder") ||
+    lower.includes("your_") ||
+    lower === "rzp_test_xxx" ||
+    lower === "rzp_live_xxx"
+  ) {
+    return false;
+  }
+  return true;
+};
 
 const getClient = (): Razorpay | null => {
   if (!isRazorpayConfigured()) return null;

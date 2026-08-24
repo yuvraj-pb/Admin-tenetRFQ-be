@@ -17,6 +17,7 @@ import { associateModels } from "../database/models/associations";
 import Role, { USER_ROLES } from "../database/models/role";
 import User from "../database/models/user";
 import { seedPlans } from "../services/planService";
+import { seedSolutionTemplates } from "../services/templateService";
 
 associateModels();
 
@@ -36,7 +37,9 @@ const run = async () => {
   await sequelize.authenticate();
 
   await seedPlans();
-  console.log("✓ Plans seeded (basic / professional / enterprise)");
+  console.log("✓ Plans seeded (trial / basic / professional / enterprise)");
+  await seedSolutionTemplates();
+  console.log("✓ Solution templates seeded (5 RFQ Cloud suites)");
 
   const systemAdminRole = await ensureRole(USER_ROLES.SYSTEM_ADMIN);
   await ensureRole(USER_ROLES.COMPANY_ADMIN);

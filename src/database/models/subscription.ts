@@ -27,6 +27,11 @@ class Subscription extends Model<
   declare payment_provider?: string | null;
   declare provider_customer_id?: string | null;
   declare provider_subscription_id?: string | null;
+  /** Diff vs plan/unpaid-base. Empty object = inherit. Nested OverrideBag or legacy flat flags. */
+  declare feature_overrides: CreationOptional<Record<string, unknown>>;
+  declare trial_ends_at?: Date | null;
+  declare trial_days?: number | null;
+  declare quote_id?: number | null;
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
   declare plan?: Plan;
@@ -65,6 +70,14 @@ Subscription.init(
     payment_provider: { type: DataTypes.STRING(32), allowNull: true },
     provider_customer_id: { type: DataTypes.STRING, allowNull: true },
     provider_subscription_id: { type: DataTypes.STRING, allowNull: true },
+    feature_overrides: {
+      type: DataTypes.JSONB,
+      allowNull: false,
+      defaultValue: {},
+    },
+    trial_ends_at: { type: DataTypes.DATE, allowNull: true },
+    trial_days: { type: DataTypes.INTEGER, allowNull: true },
+    quote_id: { type: DataTypes.INTEGER, allowNull: true },
     createdAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     updatedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
   },

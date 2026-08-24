@@ -3,6 +3,7 @@ import Plan from "../../database/models/plan";
 import Subscription from "../../database/models/subscription";
 import PlatformPayment from "../../database/models/platformPayment";
 import { writeAudit } from "../auditService";
+import { AUDIT_ACTIONS } from "../../utils/auditActions";
 import {
   amountForPlan,
   latestSubscription,
@@ -16,12 +17,13 @@ import {
   isRazorpayConfigured,
   verifyRazorpayPaymentSignature,
 } from "./razorpay";
-import { createStripeCheckout } from "./stripe";
+import { createStripeCheckout, isStripeConfigured } from "./stripe";
 
 export interface CheckoutSessionResponse {
   provider: "razorpay" | "stripe";
   checkoutUrl?: string | null;
   sessionId: string;
+  companyId?: number;
   /**
    * True when provider keys are missing — FE should call verifyPayment
    * instead of opening Checkout.js / redirecting to a live gateway.
@@ -81,12 +83,16 @@ export const buildCheckoutSession = async (opts: {
         paymentId: String(payment.id),
       },
       customerEmail: company.email || company.primaryContact?.email,
+      companyId: company.id,
     });
     await payment.update({ provider_order_id: checkout.id });
+    const stub = !isStripeConfigured();
     return {
       provider: "stripe",
       sessionId: checkout.id,
       checkoutUrl: checkout.url,
+      companyId: company.id,
+      ...(stub ? { stub: true } : {}),
     };
   }
 
@@ -105,6 +111,7 @@ export const buildCheckoutSession = async (opts: {
       sessionId: order.id,
       checkoutUrl: null,
       stub: true,
+      companyId: company.id,
     };
   }
 
@@ -112,6 +119,7 @@ export const buildCheckoutSession = async (opts: {
     provider: "razorpay",
     sessionId: order.id,
     checkoutUrl: null,
+    companyId: company.id,
     razorpay: {
       keyId: process.env.RAZORPAY_KEY_ID as string,
       orderId: order.id,
@@ -129,7 +137,7 @@ export const buildCheckoutSession = async (opts: {
 };
 
 /** Resolves or creates a subscription, then returns a checkout session. */
-export const createBillingCheckout = async (body: any, actor?: number) => {
+export const createBillingCheckout = async (body: any, actor?: number, ip?: string) => {
   const company = await Company.findByPk(Number(body.companyId));
   if (!company || company.status === "deleted") {
     throw httpError("Company not found", 404);
@@ -153,11 +161,21 @@ export const createBillingCheckout = async (body: any, actor?: number) => {
       currency: plan.currency || "INR",
       payment_provider: paymentProvider,
     });
+  } else {
+    await sub.update({
+      plan_id: plan.id,
+      billing_interval: billingInterval,
+      amount: amountForPlan(plan, billingInterval),
+      payment_provider: paymentProvider,
+    });
   }
 
-  await writeAudit(actor, "billing.checkout", company.id, {
-    purpose: body.purpose,
-    planId: plan.id,
+  await writeAudit({
+    actorUserId: actor,
+    action: "billing.checkout",
+    companyId: company.id,
+    ip,
+    meta: { purpose: body.purpose, planId: plan.id },
   });
 
   return buildCheckoutSession({
@@ -187,7 +205,7 @@ const activateSubscriptionForPayment = async (payment: PlatformPayment) => {
 };
 
 /** In-app payment verification (Razorpay handshake / Stripe session id). */
-export const verifyBillingPayment = async (body: any, actor?: number) => {
+export const verifyBillingPayment = async (body: any, actor?: number, ip?: string) => {
   const provider = normalizeProvider(body.provider);
   const orderId = body.sessionId || body.razorpayOrderId;
   if (!orderId) throw httpError("Missing payment session/order id", 400);
@@ -219,9 +237,12 @@ export const verifyBillingPayment = async (body: any, actor?: number) => {
 
   const sub = await activateSubscriptionForPayment(payment);
 
-  await writeAudit(actor, "billing.verify", payment.company_id, {
-    orderId,
-    provider,
+  await writeAudit({
+    actorUserId: actor,
+    action: AUDIT_ACTIONS.PAYMENT_VERIFIED,
+    companyId: payment.company_id,
+    ip,
+    meta: { orderId, provider },
   });
 
   return { subscriptionStatus: sub?.status || "active" };
@@ -245,8 +266,11 @@ const settlePaymentByOrderId = async (
     raw_payload: { ...(payment.raw_payload || {}), webhook: rawEvent },
   });
   await activateSubscriptionForPayment(payment);
-  await writeAudit(null, `billing.webhook.${provider}`, payment.company_id, {
-    orderId,
+  await writeAudit({
+    actorUserId: null,
+    action: `billing.webhook.${provider}`,
+    companyId: payment.company_id,
+    meta: { orderId },
   });
 };
 

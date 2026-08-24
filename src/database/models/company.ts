@@ -81,6 +81,12 @@ class Company extends Model<
   declare country?: string | null;
   declare storage_used_bytes: CreationOptional<number>;
   declare suspend_reason?: string | null;
+  declare slug?: string | null;
+  declare region: CreationOptional<string>;
+  declare timezone: CreationOptional<string>;
+  declare last_active_at?: Date | null;
+  declare tags: CreationOptional<string[]>;
+  declare internal_notes?: string | null;
 
   declare createdAt: CreationOptional<Date>;
   declare updatedAt: CreationOptional<Date>;
@@ -146,6 +152,24 @@ Company.init(
       defaultValue: 0,
     },
     suspend_reason: { type: DataTypes.TEXT, allowNull: true },
+    slug: { type: DataTypes.STRING(80), allowNull: true, unique: true },
+    region: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+      defaultValue: "ap-south-1",
+    },
+    timezone: {
+      type: DataTypes.STRING(64),
+      allowNull: false,
+      defaultValue: "Asia/Kolkata",
+    },
+    last_active_at: { type: DataTypes.DATE, allowNull: true },
+    tags: {
+      type: DataTypes.ARRAY(DataTypes.STRING),
+      allowNull: false,
+      defaultValue: [],
+    },
+    internal_notes: { type: DataTypes.TEXT, allowNull: true },
 
     createdAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },
     updatedAt: { type: DataTypes.DATE, defaultValue: DataTypes.NOW },

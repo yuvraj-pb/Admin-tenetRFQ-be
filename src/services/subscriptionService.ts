@@ -14,6 +14,8 @@ import { buildCheckoutSession } from "./billing/billingService";
 import { writeAudit } from "./auditService";
 import { serializeSubscription } from "../utils/serializers";
 import { httpError } from "../utils/httpError";
+import { AUDIT_ACTIONS } from "../utils/auditActions";
+import PlatformPayment from "../database/models/platformPayment";
 
 const serialize = async (sub: Subscription) => {
   const plan = sub.plan ?? (await Plan.findByPk(sub.plan_id));
@@ -70,6 +72,7 @@ export const changeCompanyPlan = async (
   companyId: number,
   body: any,
   actor?: number,
+  ip?: string,
 ) => {
   const company = await Company.findByPk(companyId);
   if (!company || company.status === "deleted") {
@@ -106,9 +109,12 @@ export const changeCompanyPlan = async (
     });
   }
 
-  await writeAudit(actor, "subscription.change_plan", companyId, {
-    planId: plan.id,
-    billingInterval,
+  await writeAudit({
+    actorUserId: actor,
+    action: AUDIT_ACTIONS.SUBSCRIPTION_CHANGED,
+    companyId,
+    ip,
+    meta: { planId: plan.id, billingInterval },
   });
 
   return buildCheckoutSession({
@@ -125,6 +131,7 @@ export const renewCompanySubscription = async (
   companyId: number,
   body: any,
   actor?: number,
+  ip?: string,
 ) => {
   const company = await Company.findByPk(companyId);
   if (!company || company.status === "deleted") {
@@ -147,7 +154,13 @@ export const renewCompanySubscription = async (
     status: "incomplete",
   });
 
-  await writeAudit(actor, "subscription.renew", companyId, { billingInterval });
+  await writeAudit({
+    actorUserId: actor,
+    action: AUDIT_ACTIONS.SUBSCRIPTION_RENEWED,
+    companyId,
+    ip,
+    meta: { billingInterval },
+  });
 
   return buildCheckoutSession({
     company,
@@ -159,10 +172,107 @@ export const renewCompanySubscription = async (
   });
 };
 
+/**
+ * Super Admin covers this tenant from the platform account.
+ * No Razorpay/Stripe charge — the operator is not the customer.
+ */
+export const grantCompanySubscription = async (
+  companyId: number,
+  body: any,
+  actor?: number,
+  ip?: string,
+) => {
+  const company = await Company.findByPk(companyId);
+  if (!company || company.status === "deleted") {
+    throw httpError("Company not found", 404);
+  }
+
+  let sub = await latestSubscription(companyId);
+  const planId = Number(body.planId || sub?.plan_id);
+  const plan = await Plan.findByPk(planId);
+  if (!plan || !plan.is_active) throw httpError("Invalid plan", 400);
+
+  if (sub) {
+    await assertDowngradeAllowed(companyId, plan);
+  }
+
+  const billingInterval = normalizeInterval(body.billingInterval);
+  const now = new Date();
+  const amount = amountForPlan(plan, billingInterval);
+  const currency = plan.currency || "INR";
+
+  if (!sub) {
+    sub = await Subscription.create({
+      company_id: companyId,
+      plan_id: plan.id,
+      status: "active",
+      billing_interval: billingInterval,
+      current_period_start: now,
+      current_period_end: periodEndFromNow(billingInterval, now),
+      amount,
+      currency,
+      payment_provider: "owner",
+      cancel_at_period_end: false,
+      auto_renew: true,
+    });
+  } else {
+    await sub.update({
+      plan_id: plan.id,
+      status: "active",
+      billing_interval: billingInterval,
+      current_period_start: now,
+      current_period_end: periodEndFromNow(billingInterval, now),
+      amount,
+      currency,
+      payment_provider: "owner",
+      cancel_at_period_end: false,
+      auto_renew: true,
+    });
+  }
+
+  await PlatformPayment.create({
+    company_id: companyId,
+    subscription_id: sub.id,
+    provider: "owner",
+    amount,
+    currency,
+    status: "paid",
+    purpose: "grant",
+    raw_payload: {
+      coveredBy: "platform_owner",
+      reason: body.reason || "Covered by platform operator — tenant not charged",
+    },
+  });
+
+  const previousStatus = company.status;
+  const restoreAccess = body.restoreAccess !== false;
+  if (restoreAccess && (previousStatus === "archived" || previousStatus === "suspended")) {
+    await company.update({ status: "active" });
+    await writeAudit({
+      actorUserId: actor,
+      action: AUDIT_ACTIONS.COMPANY_ACTIVATED,
+      companyId,
+      ip,
+      meta: { restoredOnGrant: true, previousStatus },
+    });
+  }
+
+  await writeAudit({
+    actorUserId: actor,
+    action: AUDIT_ACTIONS.SUBSCRIPTION_GRANTED,
+    companyId,
+    ip,
+    meta: { planId: plan.id, billingInterval, amount },
+  });
+
+  return serialize(sub);
+};
+
 export const cancelCompanySubscription = async (
   companyId: number,
   atPeriodEnd = true,
   actor?: number,
+  ip?: string,
 ) => {
   const sub = await latestSubscription(companyId);
   if (!sub) throw httpError("Subscription not found", 404);
@@ -175,6 +285,33 @@ export const cancelCompanySubscription = async (
       auto_renew: false,
     });
   }
-  await writeAudit(actor, "subscription.cancel", companyId, { atPeriodEnd });
+  await writeAudit({
+    actorUserId: actor,
+    action: AUDIT_ACTIONS.SUBSCRIPTION_CANCELLED,
+    companyId,
+    ip,
+    meta: { atPeriodEnd },
+  });
+  return serialize(sub);
+};
+
+export const resumeCompanySubscription = async (
+  companyId: number,
+  actor?: number,
+  ip?: string,
+) => {
+  const sub = await latestSubscription(companyId);
+  if (!sub) throw httpError("Subscription not found", 404);
+  if (sub.status === "cancelled" || sub.status === "expired") {
+    throw httpError("Renew the subscription to restore access", 400);
+  }
+  await sub.update({ cancel_at_period_end: false, auto_renew: true });
+  await writeAudit({
+    actorUserId: actor,
+    action: AUDIT_ACTIONS.SUBSCRIPTION_RESUMED,
+    companyId,
+    ip,
+    meta: {},
+  });
   return serialize(sub);
 };

@@ -2,7 +2,20 @@ import Stripe from "stripe";
 
 let client: Stripe | null = null;
 
-export const isStripeConfigured = () => Boolean(process.env.STRIPE_SECRET_KEY);
+export const isStripeConfigured = () => {
+  const key = process.env.STRIPE_SECRET_KEY || "";
+  if (!key) return false;
+  const lower = key.toLowerCase();
+  if (
+    lower.includes("placeholder") ||
+    lower.includes("your_") ||
+    lower === "sk_test_xxx" ||
+    lower === "sk_live_xxx"
+  ) {
+    return false;
+  }
+  return true;
+};
 
 const getClient = (): Stripe | null => {
   if (!isStripeConfigured()) return null;
@@ -28,18 +41,26 @@ export const createStripeCheckout = async (opts: {
   description: string;
   metadata?: Record<string, string>;
   customerEmail?: string;
+  companyId?: number;
 }): Promise<StripeCheckout> => {
-  const successUrl =
-    process.env.STRIPE_SUCCESS_URL ||
-    "http://localhost:3000/super-admin/subscriptions?status=success";
-  const cancelUrl =
+  const successBase =
+    process.env.STRIPE_SUCCESS_URL || "http://localhost:3000/billing/return";
+  const cancelBase =
     process.env.STRIPE_CANCEL_URL ||
-    "http://localhost:3000/super-admin/subscriptions?status=cancelled";
+    "http://localhost:3000/billing/return?status=cancelled";
+
+  const join = (url: string, extra: string) =>
+    `${url}${url.includes("?") ? "&" : "?"}${extra}`;
+
+  const companyQs =
+    opts.companyId != null ? `companyId=${opts.companyId}&` : "";
+  const successUrl = join(successBase, `${companyQs}status=success`);
+  const cancelUrl = join(cancelBase, companyQs.replace(/&$/, ""));
 
   const stripe = getClient();
   if (!stripe) {
     const id = `cs_dev_${Date.now()}`;
-    return { id, url: `${successUrl}${successUrl.includes("?") ? "&" : "?"}session_id=${id}` };
+    return { id, url: join(successUrl, `session_id=${id}`) };
   }
 
   const session = await stripe.checkout.sessions.create({
@@ -54,8 +75,8 @@ export const createStripeCheckout = async (opts: {
         },
       },
     ],
-    success_url: `${successUrl}${successUrl.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: cancelUrl,
+    success_url: join(successUrl, "session_id={CHECKOUT_SESSION_ID}"),
+    cancel_url: cancelUrl || cancelBase,
     metadata: opts.metadata,
     customer_email: opts.customerEmail,
   });
